@@ -1,9 +1,10 @@
 import logging
 import uuid
+import hashlib
 
-from fastapi import Depends,FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends,FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select, text
+from sqlalchemy import func,select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from pypdf.errors import PyPdfError
@@ -12,6 +13,7 @@ from pathlib import Path
 from app.database import get_db
 from app.models import Document
 from app.pdf_service import extract_pdf_text
+from app.services.text_extractor import extract_txt_text
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ def database_health_check(db: Session =Depends(get_db)):
             detail="Database belum dapat diakses.",
         )
 
-@app.post("/document")
+@app.post("/document", status_code=201)
 def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -69,16 +71,36 @@ def upload_document(
             detail="Ukuran file maksimal 10 MiB"
         )
 
-    if not contens.startswith(b"%PDF-"):
+    if contens.startswith(b"%PDF-"):
+        content_type = "application/pdf"
+        extension = ".pdf"
+    else:
+        try:
+            contens.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=415,
+                detail="Format file tidak didukung. Hanya PDF atau TXT (UTF-8)."
+            )
+        content_type = "text/plain"
+        extension = ".txt"
+
+    sha256_hash = hashlib.sha256(contens).hexdigest()
+
+    existing = db.scalar(select(Document).where(Document.sha256 == sha256_hash)) 
+    if existing is not None:
         raise HTTPException(
-            status_code=415,
-            detail="Isi file tidak berupa PDF."
+            status_code=409,
+            detail={
+                "message": "dokumen sudah pernah diunggah.",
+                "id" : str(existing.id),
+            },
         )
 
     file.file.seek(0)
 
     document_id = uuid.uuid4()
-    storage_path = UPLOAD_DIR / f"{document_id}.pdf"
+    storage_path = UPLOAD_DIR / f"{document_id}{extension}"
     try:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -95,10 +117,12 @@ def upload_document(
 
     document = Document(
         id=document_id,
-        original_filename=file.filename or "document.pdf",
+        original_filename=file.filename or f"document{extension}",
         storage_path=str(storage_path),
-        content_type="application/pdf",
+        content_type=content_type,
         size_bytes=size_bytes,
+        sha256=sha256_hash,
+        status="uploaded",
     )
 
     try:
@@ -123,31 +147,43 @@ def upload_document(
     return {
         "id": str(document_id),
         "filename": file.filename,
-        "content_type": file.content_type,
+        "content_type": content_type,
         "size_bytes": size_bytes,
-        "status": "document_saved",
+        "status": "uploaded",
     }
 
 @app.get("/documents")
-def list_documents(db: Session = Depends(get_db)):
+def list_documents(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    total = db.scalar(select(func.count()).select_from(Document))
+
     statement = (
         select(Document)
         .order_by(Document.created_at.desc(), Document.id.desc())
-        .limit(100)
+        .limit(limit)
+        .offset(offset)
     )
 
     documents = db.scalars(statement).all()
 
-    return [
-        {
-            "id": str(document.id),
-            "original_filename": document.original_filename,
-            "content_type": document.content_type,
-            "size_bytes": document.size_bytes,
-            "created_at": document.created_at,
-        }
-        for document in documents
-    ]
+    return {
+        "items": [
+            {
+                "id": str(document.id),
+                "original_filename": document.original_filename,
+                "content_type": document.content_type,
+                "size_bytes": document.size_bytes,
+                "created_at": document.created_at,
+            }
+            for document in documents
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 @app.get("/documents/{document_id}")
 def get_document(
@@ -248,10 +284,22 @@ def extract_document(
         )
 
     try:
-        extracted_text = extract_pdf_text(str(storage_path))
+        if document.content_type == "text/plain":
+            extracted_text = extract_txt_text(str(storage_path))
+        else:
+            extracted_text = extract_pdf_text(str(storage_path))
 
     except PyPdfError:
         logger.exception("Pembacaan PDF gagal")
+
+        document.status = "failed"
+        document.error_message = "PDF tidak dapat dibaca. File mungkin rusak atau terenkripsi."
+
+        try:
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("Penyimpanan status gagal tidak berhasil")
 
         raise HTTPException(
             status_code=422,
@@ -267,6 +315,8 @@ def extract_document(
         )
 
     document.extracted_text = extracted_text
+    document.status = "ready"
+    document.error_message = None
 
     try:
         db.commit()
@@ -283,5 +333,22 @@ def extract_document(
     return {
         "id": str(document_id),
         "character_count": len(extracted_text),
-        "status": "text_saved",
+        "status": document.status,
     }
+
+@app.delete("/documents/{document_id}", status_code=204)
+def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db)):
+    document = db.get(Document, document_id)
+    if document is None:
+        raise HTTPException(404, "Dokumen tidak ditemukan.")
+    
+    storage_path = Path(document.storage_path)
+    db.delete(document)
+    db.commit()
+    
+    try:
+        storage_path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("Gagal hapus file")
+    
+    return None  # 204 No Content

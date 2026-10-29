@@ -1,7 +1,7 @@
 import uuid
 
 from datetime import datetime
-from sqlalchemy import BigInteger,Text, Uuid, DateTime, func
+from sqlalchemy import BigInteger,Text, Uuid, DateTime, func, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -45,4 +45,27 @@ class Document(Base):
     extracted_text: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    sha256: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=True
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(),
+        nullable=False,
+        default="uploaded",
+        server_default="uploaded"
+    )
+
+    error_message: Mapped [str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    source_url: Mapped [str | None] = mapped_column(
+        Text,
+        nullable=True
     )
