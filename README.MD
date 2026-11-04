@@ -1,6 +1,6 @@
 # Document API — Backend Ingesti Dokumen untuk RAG
 
-![CI](https://github.com/USERNAME/document-api/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Adivah12/document-api/actions/workflows/ci.yml/badge.svg)
 
 REST API untuk **mengunggah, memvalidasi, menyimpan, dan mengekstrak teks dari dokumen**. FastAPI menangani request dan validasi, PostgreSQL menyimpan metadata dan teks hasil ekstraksi, file asli disimpan di disk. Proyek ini adalah **Fase 1** dari Document RAG Assistant — teks yang sudah bersih siap masuk ke tahap chunking → embedding → RAG.
 
