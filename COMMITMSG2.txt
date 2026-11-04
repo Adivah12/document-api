@@ -1,5 +1,0 @@
-repo: tambah LICENSE, GitHub Actions CI, dan badge README
-
-- LICENSE: MIT License untuk portofolio
-- .github/workflows/ci.yml: otomatisasi pytest di GitHub Actions (PostgreSQL 17 service)
-- README.MD: tambah badge CI di bagian atas
