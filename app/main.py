@@ -222,14 +222,15 @@ def download_content(
     storage_path = Path(document.storage_path)
 
     if not storage_path.is_file():
+        tipe = "PDF" if document.content_type == "application/pdf" else "TXT"
         raise HTTPException(
             status_code=404,
-            detail="File PDF tidak ditemukan di penyimpanan."
+            detail=f"File {tipe} tidak ditemukan di penyimpanan.",
         )
 
     return FileResponse(
         path=storage_path,
-        media_type="application/pdf",
+        media_type=document.content_type,
         filename=document.original_filename,
     )
 
@@ -280,7 +281,7 @@ def extract_document(
     if not storage_path.is_file():
         raise HTTPException(
             status_code=404,
-            detail="File PDF tidak ditemukan di penyimpanan.",
+            detail="File tidak dapat diekstrak. File mungkin rusak atau terenkripsi.",
         )
 
     try:

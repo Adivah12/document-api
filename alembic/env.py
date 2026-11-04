@@ -1,8 +1,10 @@
-from app.database import engine
-from app.models import Base
 from logging.config import fileConfig
 
+from sqlalchemy import create_engine
 from alembic import context
+
+from app.config import settings
+from app.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -49,6 +51,19 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _database_url() -> str:
+    """URL database yang dipakai migrasi.
+
+    Prioritas: `sqlalchemy.url` dari config (dipakai pengujian untuk menunjuk
+    ke database test), lalu `DATABASE_URL` dari environment/.env. Dengan cara
+    ini `alembic upgrade head` biasa tetap memakai database utama.
+    """
+    configured = config.get_main_option("sqlalchemy.url")
+    if configured:
+        return configured
+    return settings.database_url
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
@@ -56,7 +71,10 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    with engine.connect() as connection:
+    url = _database_url()
+    connectable = create_engine(url, pool_pre_ping=True)
+
+    with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -64,6 +82,8 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+    connectable.dispose()
 
 
 if context.is_offline_mode():

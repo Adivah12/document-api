@@ -21,6 +21,19 @@ class Settings(BaseSettings):
     # postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
     database_url: str
 
+    # Connection string khusus pengujian. WAJIB menunjuk ke database terpisah
+    # (contoh: `document_test`), bukan database produksi. Nilai ini divalidasi
+    # ulang di `tests/conftest.py` sebelum test dijalankan.
+    test_database_url: str | None = None
+
+    @field_validator("test_database_url")
+    @classmethod
+    def normalize_test_url(cls, value: str | None) -> str | None:
+        """Terapkan normalisasi driver yang sama seperti `database_url`."""
+        if value is None:
+            return None
+        return cls.use_psycopg_v3_driver(value)
+
     @field_validator("database_url")
     @classmethod
     def use_psycopg_v3_driver(cls, value: str) -> str:

@@ -6,3 +6,5 @@ alembic>=1.20,<1.21
 pydantic-settings>=2.5,<3
 python-multipart
 pypdf
+pytest>=8.3,<10
+httpx>=0.28,<1
